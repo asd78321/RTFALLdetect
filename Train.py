@@ -31,7 +31,7 @@ def labing(radar_data, labels_csv):
     time = radar_data['TIME'][0].T
 
     for frames in range(length_frames):
-        if time[frames] != []:
+        if np.size(time[frames]) != 0:
             radar_time.append(time[frames][0, 3] * 3600 + time[frames][0, 4] * 60 + time[frames][0, 5])
         else:
             point_cloud = np.delete(point_cloud, [frames, ])
@@ -81,19 +81,33 @@ def main_data_processing():
             train_data, train_label = saving(train_data, train_label, point_cloud, point_cloud_label)
             print("Data_shape:{}//{}".format(np.shape(train_data), np.shape(train_label)))
 
-    check_null_data(train_data,train_label)
-    # np.save(saving_name,train_data)
-    # np.save("{}_label".format(saving_name),train_label)
+    train_data, train_label = check_null_data(train_data, train_label)
 
-def check_null_data(train_data,train_label):
+    np.save(saving_name, train_data)
+    np.save("{}_label".format(saving_name), train_label)
+
+
+def check_null_data(train_data, train_label):
     null_index_list = []
-    print(train_data[3537])
+    Ptrain_data = train_data
+    Ptrain_label = []
+    print("Raw train_data length Data:{}//Label:{}".format(len(train_data), len(train_label)))
+    null_count = 0
     for frames in range(len(train_data)):
-        if np.all(train_data[frames]):
-            continue
-        else:
+        if np.size(train_data[frames]) == 0:
             null_index_list.append(frames)
-    print(null_index_list)
+            null_count += 1
+        else:
+            Ptrain_data[frames - null_count] = train_data[frames]
+            Ptrain_label.append(train_label[frames])
+
+    print("empty array length:{}".format(len(null_index_list)))
+
+    train_label = np.array(Ptrain_label)
+    train_data = Ptrain_data[0:len(train_data) - len(null_index_list)]
+    print("train_data Shape Data:{}//Label:{}".format(np.shape(train_data), np.shape(train_label)))
+
+    return train_data, train_label
 
 
 def load_train_data_processing(data_path):
@@ -106,28 +120,86 @@ def load_train_data_processing(data_path):
 
 
 def testing(train_data, train_label):
-    # 0 = 站或移動
-    # 1 = 站到坐
-    # 2 = 坐到站
-    # 3 = 坐到躺
-    # 4 = 躺到坐
-    # 5 = 跌倒
-    # 6 = 起身
-    length_image = 300
+    # Total data = 88659
+    # 0 = 站或移動 :8956
+    # 1 = 站到坐   :15978
+    # 2 = 坐到站   :14927
+    # 3 = 坐到躺   :11604
+    # 4 = 躺到坐   :11899
+    # 5 = 跌倒     :11680
+    # 6 = 起身     :13615
+    length_image = 89
 
     target_index_list = np.where(train_label == 5)
-    print(target_index_list[0][0])
+    print("Pose length: {}".format(len(target_index_list[0])))
     image_data = target_index_list[0][0:length_image]
     image = []
-    print(train_data[3537])
-    # for i in image_data:
-        # print(i)
-        # image.append(np.mean(train_data[i][3]))  # Doppler index = 3
-    # plot_image(image)
+    null_count = 0
+    for i in image_data:
+        image.append(np.mean(train_data[i][3]))  # Doppler index = 3
+    plot_image(image)
 
 
-def plot_image(image):
-    plt.subplot(111)
+def testing_2(train_label):
+    pose_list = ["stand or walk", "stand to sit", "sit to stand", "sit to lie", "lie to sit", "fall", "get up"]
+
+    for pose_index in range(len(pose_list)):
+        target_index_list = np.where(train_label == pose_index)
+        # print(target_index_list)
+        len_list = []
+        len_index = []
+        len_count = 0
+        for i in range(len(target_index_list[0])):
+            if i == 0:
+                temp = target_index_list[0][i]
+            else:
+                now = target_index_list[0][i]
+                if now - temp < 5:
+                    len_count += 1
+                    temp = target_index_list[0][i]
+                else:
+                    if len_count > 10:
+                        len_list.append(len_count)
+                        len_index.append(i)
+                        len_count = 0
+                        temp = target_index_list[0][i]
+
+        min_index = np.where(len_list == np.min(len_list))
+        max_index = np.where(len_list == np.max(len_list))
+        # min
+        min_star_index = len_index[min_index[0][0]] - np.min(len_list)
+        min_end_index = len_index[min_index[0][0]]
+        image_data = target_index_list[0][min_star_index:min_end_index]
+        image = []
+        null_count = 0
+        for i in image_data:
+            image.append(np.mean(train_data[i][3]))  # Doppler index = 3
+        for count in range(len_list[max_index[0][0]] - len(image)):
+            image.append(0)
+        # plot_image(image, pose_list[pose_index] + "min")
+
+        # max
+        max_star_index = len_index[max_index[0][0]] - np.max(len_list)
+        max_end_index = len_index[max_index[0][0]]
+        image_data = target_index_list[0][max_star_index:max_end_index]
+        image = []
+        null_count = 0
+        for i in image_data:
+            image.append(np.mean(train_data[i][3]))  # Doppler index = 3
+        # plot_image(image, pose_list[pose_index] + "max")
+        de_max_min_len_list = np.delete(len_list, [max_index[0][0], min_index[0][0]])
+        # print("length_list:{}".format(len_list))
+        comform_index = np.where(np.array(len_list) < round(np.mean(de_max_min_len_list)+20))
+
+        print(
+            "Pose: {} //Count: {}組 De_Count: {}組//Meanlength: {:.2f}秒 \n //de_Max_meanLength: {:.2f}秒//原始最長: {:.2f}秒//原始最短: {:.2f}秒//標準差:{:.2f} //去對最大標準差:{:.2f} ".format(
+                pose_list[pose_index], len(len_list), len(comform_index[0]),
+                np.mean(len_list) / 10, np.mean(de_max_min_len_list) / 10,
+                np.max(len_list) / 10, np.min(len_list) / 10, np.std(len_list), np.std(de_max_min_len_list)))
+
+
+def plot_image(image, pose):
+    plt.title("{}".format(pose))
     plt.xlabel("Time")
     plt.ylabel("Doppler")
     plt.plot(image)
@@ -135,7 +207,8 @@ def plot_image(image):
 
 
 if __name__ == "__main__":
-    main_data_processing()
-    # data_path = "C:\\Users\\70639wimoc\\PycharmProjects\\RTFALLdetect\\"
-    # train_data, train_label = load_train_data_processing(data_path)
+    # main_data_processing()
+    data_path = "C:\\Users\\70639wimoc\\PycharmProjects\\RTFALLdetect\\"
+    train_data, train_label = load_train_data_processing(data_path)
     # testing(train_data, train_label)
+    testing_2(train_label)
