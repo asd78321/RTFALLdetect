@@ -5,6 +5,8 @@ import numpy as np
 import scipy.io as scio
 import pandas as pd
 import matplotlib.pyplot as plt
+import pickle
+
 
 def main_data_processing():
     saving_name = "./raw_data"
@@ -28,6 +30,7 @@ def main_data_processing():
 
     np.save(saving_name, train_data)
     np.save("{}_label".format(saving_name), train_label)
+
 
 def load_data(data_path):
     print("load data....")
@@ -79,8 +82,6 @@ def stack_and_saving(train_data, train_label, point_cloud, label):
     return train_data, train_label
 
 
-
-
 def check_null_data(train_data, train_label):
     print("checking null data...")
     null_index_list = []
@@ -114,7 +115,6 @@ def load_train_data_processing(data_path):
     return train_data, train_label
 
 
-
 def split_and_resize(train_data, train_label):
     pose_list = ["stand_or_walk", "stand_to_sit", "sit_to_stand", "sit_to_lie", "lie_to_sit", "fall", "get_up"]
 
@@ -144,7 +144,7 @@ def split_and_resize(train_data, train_label):
 
         data = []
         for data_count in range(len(len_list)):
-            star_index = len_index[data_count]-len_list[data_count]
+            star_index = len_index[data_count] - len_list[data_count]
             end_index = len_index[data_count]
             doopler_data = []
             doppler_data_index = target_index_list[0][star_index:end_index]
@@ -152,12 +152,11 @@ def split_and_resize(train_data, train_label):
                 doopler_data.append(np.mean(train_data[j][3]))
 
             doopler_data = np.array(doopler_data)
-            doopler_data.resize((70,1))
+            doopler_data.resize((70, 1))
             data.append(doopler_data)
 
         data = np.array(data)
-        np.save("./training_data//{}".format(pose_list[pose_index]),data)
-
+        np.save("./training_data//{}".format(pose_list[pose_index]), data)
 
         de_max_min_len_list = np.delete(len_list, [max_index[0][0], min_index[0][0]])
         comform_index = np.where(np.array(len_list) < round(np.mean(de_max_min_len_list) + 20))
@@ -168,24 +167,58 @@ def split_and_resize(train_data, train_label):
                 np.mean(len_list) / 10, np.mean(de_max_min_len_list) / 10,
                 np.max(len_list) / 10, np.min(len_list) / 10, np.std(len_list), np.std(de_max_min_len_list)))
 
+
 def load_doppler_data(data_path):
     full_data_name = os.listdir(data_path)
     for file_name in full_data_name:
-        data = np.load("{}".format(data_path+file_name),allow_pickle=True)
-        print("Data {} length: {}".format(file_name,np.shape(data)))
-        plot_image(data[0],file_name)
+        data = np.load("{}".format(data_path + file_name), allow_pickle=True)
+        print("Data {} length: {}".format(file_name, np.shape(data)))
+        plot_image(data[0], file_name)
 
-def plot_image(image, pose):
+
+def reading_log_and_plot():
+    ylabel = "%"
+    xlabel="epoch"
+
+    with open('trainHistoryDict.txt', 'rb') as file_pi:
+        history = pickle.load(file_pi)
+        for data_name in history.keys():
+            plot_image(history[data_name], data_name,xlabel,ylabel)
+
+
+def plot_image(image, pose,xlabel,ylabel):
     plt.title("{}".format(pose))
-    plt.xlabel("Time")
-    plt.ylabel("Doppler")
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
     plt.plot(image)
     plt.show()
 
+def testing(data_path):
+    file_name_list = os.listdir(data_path)
+    for file_name_index in range(len(file_name_list)):
+        data = np.load(data_path + "/{}".format(file_name_list[file_name_index]))
+        data = data.reshape([len(data),70])
+        for i in range(len(data)):
+            if i ==0:
+                plot_data = data[i]
+            plot_data = plot_data + data[i]
+        plot_data = plot_data /70
+        plot_image(plot_data,file_name_list[file_name_index],'times',' ')
+        # print(np.shape(train_data), np.shape(train_label))
+        # print(label[0])
 
 if __name__ == "__main__":
+    # stap1: main_data_processing()
     # main_data_processing() # 資料前處理並串接儲存成raw_data
-    data_path = "C:\\Users\\70639wimoc\\PycharmProjects\\RTFALLdetect\\"
-    train_data, train_label = load_train_data_processing(data_path) # labeling and load
-    split_and_resize(train_data, train_label) # 切出每個動作並固定維度,各別儲存
-    load_doppler_data(data_path+"training_data\\")
+
+    # step2: data_features_save *.npy
+    # data_path = "C:\\Users\\70639wimoc\\PycharmProjects\\RTFALLdetect\\"
+    # train_data, train_label = load_train_data_processing(data_path)  # labeling and load
+    # split_and_resize(train_data, train_label)  # 切出每個動作並固定維度,各別儲存
+    # load_doppler_data(data_path + "training_data\\")
+
+    # data analysis
+    reading_log_and_plot()
+
+    # data_path = "./training_data"
+    # testing(data_path)
