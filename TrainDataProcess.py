@@ -6,6 +6,8 @@ import scipy.io as scio
 import pandas as pd
 import matplotlib.pyplot as plt
 import pickle
+import xlwt, xlrd
+from mpl_toolkits.mplot3d import Axes3D
 
 
 def main_data_processing():
@@ -34,7 +36,7 @@ def main_data_processing():
 
 def load_data(data_path):
     print("load data....")
-    radar_data_name = '\\fhistRT.mat'
+    radar_data_name = '\\fhistRT2.mat'
     kinect_data_name = '\\labels.csv'
 
     file_key_name = 'fHist'
@@ -115,7 +117,7 @@ def load_train_data_processing(data_path):
     return train_data, train_label
 
 
-def split_and_resize(train_data, train_label):
+def split_and_resize(train_data, train_label):  # Doppler
     pose_list = ["stand_or_walk", "stand_to_sit", "sit_to_stand", "sit_to_lie", "lie_to_sit", "fall", "get_up"]
 
     for pose_index in range(len(pose_list)):
@@ -153,72 +155,303 @@ def split_and_resize(train_data, train_label):
 
             doopler_data = np.array(doopler_data)
             doopler_data.resize((70, 1))
+            # doopler_data.resize((int(round(np.mean(len_list))), 1))
             data.append(doopler_data)
 
         data = np.array(data)
-        np.save("./training_data//{}".format(pose_list[pose_index]), data)
+        if pose_index == 2:
+            data = np.delete(data, 194, axis=0)
+        np.save("./training_data_doppler//{}".format(pose_list[pose_index]), data)  # sit to stand frames:194 have error
 
-        de_max_min_len_list = np.delete(len_list, [max_index[0][0], min_index[0][0]])
-        comform_index = np.where(np.array(len_list) < round(np.mean(de_max_min_len_list) + 20))
+        # de_max_min_len_list = np.delete(len_list, [max_index[0][0], min_index[0][0]])
+        # comform_index = np.where(np.array(len_list) < round(np.mean(de_max_min_len_list) + 20))
+        #
+        # print(
+        #     "Pose: {} //Count: {}組 De_Count: {}組//Meanlength: {:.2f}秒 \n //de_Max_meanLength: {:.2f}秒//原始最長: {:.2f}秒//原始最短: {:.2f}秒//標準差:{:.2f} //去對最大標準差:{:.2f} ".format(
+        #         pose_list[pose_index], len(len_list), len(comform_index[0]),
+        #         np.mean(len_list) / 10, np.mean(de_max_min_len_list) / 10,
+        #         np.max(len_list) / 10, np.min(len_list) / 10, np.std(len_list), np.std(de_max_min_len_list)))
 
-        print(
-            "Pose: {} //Count: {}組 De_Count: {}組//Meanlength: {:.2f}秒 \n //de_Max_meanLength: {:.2f}秒//原始最長: {:.2f}秒//原始最短: {:.2f}秒//標準差:{:.2f} //去對最大標準差:{:.2f} ".format(
-                pose_list[pose_index], len(len_list), len(comform_index[0]),
-                np.mean(len_list) / 10, np.mean(de_max_min_len_list) / 10,
-                np.max(len_list) / 10, np.min(len_list) / 10, np.std(len_list), np.std(de_max_min_len_list)))
+
+def split_and_pointcloud(train_data, train_label):
+    pose_list = ["stand_or_walk", "stand_to_sit", "sit_to_stand", "sit_to_lie", "lie_to_sit", "fall", "get_up"]
+    for pose_index in range(len(pose_list)):
+        target_index_list = np.where(train_label == pose_index)
+        print("processing {}...".format(pose_list[pose_index]))
+        len_list = []
+        len_index = []
+        len_count = 0
+        print(np.shape(target_index_list[0]))
+        for i in range(len(target_index_list[0])):
+            if i == 0:
+                temp = target_index_list[0][i]  # 上一幀
+            else:
+                now = target_index_list[0][i]  # 當前幀
+                if now - temp < 2:
+                    len_count += 1
+                    temp = target_index_list[0][i]
+                else:
+                    if len_count > 10:  # 連續動作且超過1秒
+                        len_list.append(len_count)  # 各別動作長度(幀)
+                        len_index.append(i)  # 切換幀之index
+                        len_count = 0
+                        temp = target_index_list[0][i]
+        #
+        min_index = np.where(len_list == np.min(len_list))  # 最長\短 幀之index
+        max_index = np.where(len_list == np.max(len_list))
+        #
+        f_pointcloud = []
+        cen_Point_cloud = []
+        print("dataLength:{}".format(len(len_list)))
+        for data_count in range(len(len_list)):
+            star_index = len_index[data_count] - len_list[data_count]
+            end_index = len_index[data_count]
+            frame_Point_cloud = []
+            Point_cloud_index = target_index_list[0][star_index:end_index]
+            for j in Point_cloud_index:
+                frame_Point_cloud.append(np.array(train_data[j]))
+
+            centroid, pointcloud = pointCloud_resize(frame_Point_cloud)
+
+            # centroid.resize((int(round(np.mean(len_list))), 3))
+            # pointcloud.resize((int(round(np.mean(len_list))), 100, 3))
+            centroid.resize((70, 3))
+            pointcloud.resize((70, 100, 3))
+            cen_Point_cloud.append(centroid)
+            f_pointcloud.append(pointcloud)
+
+        cen_Point_cloud = np.array(cen_Point_cloud)
+        f_pointcloud = np.array(f_pointcloud)
+
+        print("cen:{} po:{}".format(np.shape(cen_Point_cloud), np.shape(f_pointcloud)))
+        if pose_index == 2:
+            cen_Point_cloud = np.delete(cen_Point_cloud, 194, axis=0)
+            f_pointcloud = np.delete(f_pointcloud, 194, axis=0)
+        np.save("./training_data_Height//{}".format(pose_list[pose_index]),cen_Point_cloud)
+        np.save("./training_data_point2d//{}".format(pose_list[pose_index]), f_pointcloud)
+        # print(np.shape(Point_cloud))
+
+    # sit to stand frames:194 have error
 
 
-def load_doppler_data(data_path):
-    full_data_name = os.listdir(data_path)
-    for file_name in full_data_name:
-        data = np.load("{}".format(data_path + file_name), allow_pickle=True)
-        print("Data {} length: {}".format(file_name, np.shape(data)))
-        plot_image(data[0], file_name)
+def pointCloud_resize(frames_point_cloud):
+    # range:0 ,theta:1 ,phi:2 ,doppler:3 ,snr:4
+    pl_f = []
+    frames_centroid_point = np.zeros([len(frames_point_cloud), 3])
+    sample_frames_point_cloud=np.zeros([len(frames_point_cloud),100, 3])
+    for point_count in range(len(frames_point_cloud)):
+        RANGE = frames_point_cloud[point_count][0]
+        Theta = frames_point_cloud[point_count][1]
+        Phi = frames_point_cloud[point_count][2]
+        N = 100
+        centroid_point, point_cloud = oversample(RANGE, Theta, Phi, N)
+        frames_centroid_point[point_count] = centroid_point
+        sample_frames_point_cloud[point_count] =point_cloud
+    return frames_centroid_point, sample_frames_point_cloud
+
+
+def oversample(RANGE, Theta, Phi, N):
+    centroid_point = np.zeros([3])
+    point_cloud = np.zeros([len(RANGE), 3])
+    point_cloud[:, 0] = RANGE * np.cos(Phi) * np.sin(Theta)
+    point_cloud[:, 1] = RANGE * np.cos(Phi) * np.cos(Theta)
+    point_cloud[:, 2] = RANGE * np.sin(Phi)
+
+    centroid_point[0] = np.mean(point_cloud[:, 0])  # centroid x
+    centroid_point[1] = np.mean(point_cloud[:, 1])  # centroid y
+    centroid_point[2] = np.mean(point_cloud[:, 2])  # centroid z
+
+    new_point_cloud = np.zeros([N, 3])
+
+    S = np.sqrt(N / len(point_cloud))
+    for i in range(N):
+        if i < len(point_cloud):
+            new_point_cloud[i, 0] = S * point_cloud[i, 0] + centroid_point[0] - S * centroid_point[0]
+            new_point_cloud[i, 1] = S * point_cloud[i, 1] + centroid_point[1] - S * centroid_point[1]
+            new_point_cloud[i, 2] = S * point_cloud[i, 2] + centroid_point[2] - S * centroid_point[2]
+        else:
+            new_point_cloud[i, 0] = centroid_point[0]
+            new_point_cloud[i, 1] = centroid_point[1]
+            new_point_cloud[i, 2] = centroid_point[2]
+    # print(np.shape(centroid_point))
+    return centroid_point, new_point_cloud
 
 
 def reading_log_and_plot():
     ylabel = "%"
-    xlabel="epoch"
+    xlabel = "epoch"
 
     with open('trainHistoryDict.txt', 'rb') as file_pi:
         history = pickle.load(file_pi)
         for data_name in history.keys():
-            plot_image(history[data_name], data_name,xlabel,ylabel)
+            plot_image(history[data_name], data_name, xlabel, ylabel)
 
 
-def plot_image(image, pose,xlabel,ylabel):
+def plot_image(image, pose, xlabel, ylabel):
     plt.title("{}".format(pose))
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.plot(image)
     plt.show()
 
-def testing(data_path):
+
+def set_pltdata_doppler(data_path):
+    pltdata = []
     file_name_list = os.listdir(data_path)
     for file_name_index in range(len(file_name_list)):
+        # print(file_name_list[file_name_index])
         data = np.load(data_path + "/{}".format(file_name_list[file_name_index]))
-        data = data.reshape([len(data),70])
+        # data = data.reshape([len(data), 70])
+        plt.title('{}'.format(file_name_list[file_name_index]))
         for i in range(len(data)):
-            if i ==0:
+            # plt.plot(data[i])
+            if i == 0:
                 plot_data = data[i]
-            plot_data = plot_data + data[i]
-        plot_data = plot_data /70
-        plot_image(plot_data,file_name_list[file_name_index],'times',' ')
-        # print(np.shape(train_data), np.shape(train_label))
-        # print(label[0])
+            else:
+                plot_data = plot_data + data[i]
+        plot_data = plot_data / len(data)
+        pltdata.append(plot_data)
+    return pltdata
+
+
+def set_pltdata_pointcloud(data_path):
+    pltdata = []
+    file_name_list = os.listdir(data_path)
+    # data = np.load(data_path+"/{}".format(file_name_list[0]))
+    # z = data[:,:,2]
+    for file_name_index in range(len(file_name_list)):
+        data = np.load(data_path + "/{}".format(file_name_list[file_name_index]), allow_pickle=True)
+        data = data[:, :, 2]  # plot z
+        plt.title('{}'.format(file_name_list[file_name_index]))
+        for i in range(len(data)):
+            # plt.plot(data[i])
+            if i == 0:
+                plot_data = data[i]
+            else:
+                plot_data = plot_data + data[i]
+        plot_data = plot_data / len(data)
+        pltdata.append(plot_data)
+    return pltdata
+
+
+def plot_doppler_cen():
+    data_path = "./temp_height"
+    test1 = set_pltdata_pointcloud(data_path)
+    data_path = "./temp_doppler"
+    test2 = set_pltdata_doppler(data_path)
+
+    file_name_list = os.listdir(data_path)
+    for i in range(len(file_name_list)):
+        p1 = plt.plot(test1[i])
+        p2 = plt.plot(test2[i])
+        plt.title("{}".format(file_name_list[i]))
+        plt.xlabel('Frames')
+        plt.legend(["cen_height", "cen_doppler"])
+        plt.show()
+
+
+def plot_pointcloud_scatter():
+    data_path = "./training_data_point2d"
+    file_list = os.listdir(data_path)
+    for file_name in file_list:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        data = np.load(data_path + "/{}".format(file_name))
+        # data.reshape([np.shape(data)[0]*np.shape(data)[1],100,3])
+        for i in range(np.shape(data)[0]):
+            if i == 0:
+                plot_data = data[i]
+            else:
+                plot_data = plot_data + data[i]
+        plot_data = plot_data / np.shape(data)[0]
+        ax.scatter(data[:,:,0],data[:,:,1])
+        # plt.scatter(plot_data[:, :, 0], plot_data[:, :, 1])
+        # plt.title("{}".format(file_name))
+        plt.show()
+
+
+def processing_multi_fhistRT(data_path):
+    file_key_name = 'fHist'
+
+    matfilenamelist = [os.path.join(data_path, _) for _ in os.listdir(data_path) if _.endswith('.mat')]
+    train_data = np.array([])
+    for fileindex in matfilenamelist:
+        data = scio.loadmat(fileindex)[file_key_name]
+        length_frames = np.shape(data)[1]
+        point_cloud = np.reshape(data['pointCloud'].T, [length_frames, ])
+        if train_data.size > 0:
+            train_data = np.concatenate((point_cloud, train_data))
+        else:
+            train_data = point_cloud
+    # train_data = train_data[400:len(train_data) - 200]
+
+    return train_data
+
+
+
+
+
+def test():
+    data_path = "C:\\Users\\70639wimoc\\PycharmProjects\\RTFALLdetect\\walk_stand_xie\\walk_stand_xie"
+    data1 = processing_multi_fhistRT(
+        data_path="C:\\Users\\70639wimoc\\PycharmProjects\\RTFALLdetect\\walk_stand_xie\\walk_stand_xie")
+    data2 = processing_multi_fhistRT(
+        data_path="C:\\Users\\70639wimoc\\PycharmProjects\\RTFALLdetect\\walk_stand_feng\\walk_stand_feng")
+    raw_data = np.concatenate((data1, data2))
+    length = len(raw_data)
+    index = []
+    for i in range(len(raw_data)):
+        if np.size(raw_data[i])==0:
+            index.append(i)
+    data = np.delete(raw_data,index,axis=0)
+    # print(np.shape(raw_data))
+    # print(np.shape(data))
+
+    data =data[0:7000]
+    split = 70
+    train_data_doppler =[]
+    train_data_pointcloud =[]
+    train_data_height=[]
+    for i in range(len(data) // 70):
+        doppler_data_list = []
+        start_index = i * 70
+        end_index = start_index + 70
+        frames_data = data[start_index:end_index]
+        for j in range(len(frames_data)):
+            doppler_data_list.append(np.mean(frames_data[j][3]))
+        centroid, pointcloud = pointCloud_resize(frames_data)
+        doppler_data_list=np.array(doppler_data_list)
+        train_data_doppler.append(doppler_data_list)
+        train_data_height.append(centroid)
+        train_data_pointcloud.append(pointcloud)
+
+    train_data_doppler =np.array(train_data_doppler)
+    train_data_height=np.array(train_data_height)
+    train_data_pointcloud =np.array(train_data_pointcloud)
+
+        # plt.plot(doppler_data_list)
+        # plt.show()
+    print("doopler:{} cen:{} pointclud:{}".format(np.shape(train_data_doppler),np.shape(train_data_height),np.shape(train_data_pointcloud)))
+    np.save("./temp/stand_or_walk_p",train_data_pointcloud)
+    np.save("./temp/stand_or_walk_d", train_data_doppler)
+    np.save("./temp/stand_or_walk_c", train_data_height)
+
 
 if __name__ == "__main__":
     # stap1: main_data_processing()
     # main_data_processing() # 資料前處理並串接儲存成raw_data
 
     # step2: data_features_save *.npy
-    # data_path = "C:\\Users\\70639wimoc\\PycharmProjects\\RTFALLdetect\\"
-    # train_data, train_label = load_train_data_processing(data_path)  # labeling and load
-    # split_and_resize(train_data, train_label)  # 切出每個動作並固定維度,各別儲存
-    # load_doppler_data(data_path + "training_data\\")
+    data_path = "C:\\Users\\70639wimoc\\PycharmProjects\\RTFALLdetect\\"
+    train_data, train_label = load_train_data_processing(data_path)  # labeling and load
+    split_and_resize(train_data, train_label)  # 切出每個動作並固定維度,各別儲存
+    split_and_pointcloud(train_data, train_label)
+
+    # plot_doppler_cen() # 畫Doppler趨勢圖
+
+    # plot_pointcloud_scatter()# 畫點雲圖
 
     # data analysis
-    reading_log_and_plot()
+    # reading_log_and_plot() #畫tensor board
 
-    # data_path = "./training_data"
-    # testing(data_path)
+    # test()

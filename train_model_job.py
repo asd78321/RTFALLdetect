@@ -29,7 +29,7 @@ def load_data(data_path):
             train_label = label
         # print(np.shape(train_data), np.shape(train_label))
         # print(label[0])
-    train_data = train_data.reshape([len(train_data), 70])
+    # train_data = train_data.reshape([len(train_data), 70])
     print(np.shape(train_data), np.shape(train_label))
 
     return train_data, train_label
@@ -114,10 +114,14 @@ def model_dnn(X_train, Y_train):
 
 
 def main():
-    data_path = "./training_data"
+    data_path = "./training_data_doppler"
     train_data, train_label = load_data(data_path)
+    print("Doppler length:{}".format(len(train_data)))
+    data_path = "./training_data_Height"
+    train_data,train_label = load_data(data_path)
+    print("Pointcloud length:{}".format(len(train_data)))
     # model_LSTM(train_data,train_label)
-    model_dnn(train_data, train_label)
+    # model_dnn(train_data, train_label)
 
 
 if __name__ == "__main__":
